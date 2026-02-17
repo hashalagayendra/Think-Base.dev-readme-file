@@ -1,4 +1,8 @@
 <p align="center">
+  <img src="frontend/src/assets/logo.svg" alt="ThinkBase Logo" width="120" height="120" style="background-color: #1a1a2e; border-radius: 20px; padding: 15px;" />
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/STATUS-LIVE%20IN%20PRODUCTION-brightgreen?style=for-the-badge" />
   <img src="https://img.shields.io/badge/NestJS-11-E0234E?style=for-the-badge&logo=nestjs&logoColor=white" />
   <img src="https://img.shields.io/badge/Next.js-15-000000?style=for-the-badge&logo=next.js&logoColor=white" />
@@ -45,7 +49,8 @@
 - [📊 Database Design](#-database-design)
 - [🔐 Authentication System](#-authentication-system)
 - [🤖 RAG Pipeline — How AI Works](#-rag-pipeline--how-ai-works)
-- [📡 API Layer — REST & GraphQL](#-api-layer--rest--graphql)
+- [� Chat Session & History Persistence](#-chat-session--history-persistence)
+- [�📡 API Layer — REST & GraphQL](#-api-layer--rest--graphql)
 - [🎨 Frontend Architecture](#-frontend-architecture)
 - [📦 Client Library — npm Package](#-client-library--npm-package)
 - [🚀 CI/CD & Cloud Deployment](#-cicd--cloud-deployment)
@@ -461,7 +466,56 @@ This is the core intelligence of ThinkBase. Here's the complete RAG flow:
 
 ---
 
-## 📡 API Layer — REST & GraphQL
+## � Chat Session & History Persistence
+
+ThinkBase implements a **cookie-based session tracking system** that enables persistent chat history per user — without requiring authentication for end-users of the chatbot.
+
+### How It Works
+
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant Backend
+    participant Database
+
+    Browser->>Backend: POST /chat/sendMessage (no clientId cookie)
+    Note over Backend: Generate clientId via<br/>crypto.randomBytes(16).toString('hex')
+    Backend->>Database: Store message with clientId + apikeyId
+    Backend-->>Browser: Response + Set-Cookie: clientId (httpOnly, secure, SameSite=None)
+
+    Browser->>Backend: POST /chat/sendMessage (clientId cookie attached)
+    Backend->>Database: Fetch previous messages by clientId
+    Note over Backend: Build conversation memory<br/>from stored history
+    Backend->>Database: Store new user message + AI response
+    Backend-->>Browser: AI Response
+
+    Browser->>Backend: POST /chat/getAllMessagesByClientId
+    Backend->>Database: SELECT * WHERE clientId AND apikeyId
+    Backend-->>Browser: Full chat history array
+
+    Browser->>Backend: POST /chat/deleteAllMessagesByClientId
+    Backend->>Database: DELETE WHERE clientId AND apikeyId
+    Backend-->>Browser: Deletion confirmed
+```
+
+### Key Design Details
+
+| Aspect                      | Implementation                                                                                       |
+| --------------------------- | ---------------------------------------------------------------------------------------------------- |
+| **Session ID Generation**   | `crypto.randomBytes(16).toString('hex')` — 128-bit random hex string                                 |
+| **Storage Mechanism**       | `httpOnly` secure cookie (`SameSite=None`) — accessible cross-origin                                 |
+| **Server-Side Persistence** | All messages stored in `Chat` table with `clientId`, `message`, `sender`, `apikeyId`                 |
+| **History Scoping**         | Messages are scoped by `clientId` + `apikeyId` — each API key has separate conversations             |
+| **Conversation Memory**     | Previous messages loaded from DB and injected as `HumanMessage` / `AIMessage` into LangChain context |
+| **Session Lifecycle**       | Cookie persists in browser → same user gets same chat history on return visits                       |
+| **Anonymous Users**         | No login required — end-users are identified solely by the browser cookie                            |
+| **Clear History**           | Users can delete all messages via `deleteAllMessagesByClientId` endpoint                             |
+
+> 💡 This design allows **website visitors to have persistent conversations** with the AI chatbot without creating an account — the browser cookie acts as their anonymous identity, and all history is safely stored server-side in PostgreSQL.
+
+---
+
+## �📡 API Layer — REST & GraphQL
 
 ### REST API Endpoints (Swagger-documented)
 
