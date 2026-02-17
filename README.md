@@ -2,7 +2,7 @@
   <img src="logo.6dfedbbb.svg" alt="ThinkBase Logo" width="120" height="120" style="background-color: #1a1a2e; border-radius: 20px; padding: 15px;" />
 </p>
 
-<p align="center">
+<!-- <p align="center">
   <img src="https://img.shields.io/badge/STATUS-LIVE%20IN%20PRODUCTION-brightgreen?style=for-the-badge" />
   <img src="https://img.shields.io/badge/NestJS-11-E0234E?style=for-the-badge&logo=nestjs&logoColor=white" />
   <img src="https://img.shields.io/badge/Next.js-15-000000?style=for-the-badge&logo=next.js&logoColor=white" />
@@ -11,7 +11,7 @@
   <img src="https://img.shields.io/badge/Gemini-2.5%20Flash-4285F4?style=for-the-badge&logo=google&logoColor=white" />
   <img src="https://img.shields.io/badge/Azure-Container%20Apps-0078D4?style=for-the-badge&logo=microsoft-azure&logoColor=white" />
   <img src="https://img.shields.io/badge/Docker-Containerized-2496ED?style=for-the-badge&logo=docker&logoColor=white" />
-</p>
+</p> -->
 
 <h1 align="center">ThinkBase</h1>
 
@@ -486,26 +486,7 @@ Instead of requiring login, ThinkBase generates a **unique session ID** and stor
 
 #### 🔵 Step 1 — First Visit (No Cookie Exists)
 
-When a visitor sends their **first message**, the backend detects no `clientId` cookie and generates one:
-
-```typescript
-// chat.controller.ts — First message handling
-let clientId = req.cookies["clientId"] || null || undefined;
-
-if (!clientId) {
-  // Generate a cryptographically secure 128-bit random ID
-  clientId = crypto.randomBytes(16).toString("hex");
-  // Example output: "a3f8b2c1d4e5f6a7b8c9d0e1f2a3b4c5"
-
-  // Store it as a secure cookie in the visitor's browser
-  res.cookie("clientId", clientId, {
-    sameSite: "none", // Allow cross-origin (widget on any website)
-    httpOnly: true, // JavaScript cannot read this cookie (XSS protection)
-    secure: true, // Only sent over HTTPS
-    maxAge: 1000 * 60 * 60 * 24, // Expires in 24 hours
-  });
-}
-```
+When a visitor sends their **first message**, the backend detects no `clientId` cookie and generates a cryptographically secure 128-bit random ID using `crypto.randomBytes(16)`. This ID is stored as a `httpOnly`, `secure`, `SameSite=None` cookie with a 24-hour expiry.
 
 > **Why `httpOnly`?** — Prevents malicious JavaScript on the host website from stealing the session cookie. Only the browser sends it automatically with each request.
 
@@ -513,83 +494,17 @@ if (!clientId) {
 
 #### 🟢 Step 2 — Retrieving Previous Conversations
 
-On every subsequent message, the backend loads the visitor's **entire chat history** from the database:
-
-```typescript
-// chat.service.ts — Loading conversation history
-// Two modes: Dashboard (scoped by clientId + apikey) vs Client Library (scoped by clientId only)
-
-if (!SDK) {
-  // Dashboard mode — conversations are scoped per API key
-  chat = await this.prismaService.chat.findMany({
-    where: { clientId, apikeyId: apikey },
-    orderBy: { createdAt: "asc" },
-  });
-} else {
-  // Client Library mode — all conversations for this visitor
-  chat = await this.prismaService.chat.findMany({
-    where: { clientId },
-    orderBy: { createdAt: "asc" },
-  });
-}
-```
+On every subsequent message, the backend loads the visitor's **entire chat history** from the database. It supports two modes — **Dashboard mode** (scoped by `clientId` + `apikeyId`) and **Client Library mode** (scoped by `clientId` only).
 
 #### 🟡 Step 3 — Building Conversation Memory for AI
 
-The stored messages are converted into **LangChain message objects** so the AI understands the full conversation context:
+The stored messages are converted into **LangChain message objects** (`HumanMessage` / `AIMessage`) and combined with the project's system prompt and the current question with retrieved vector context. This full array is sent to Gemini for a contextually aware response.
 
-```typescript
-// chat.service.ts — Converting DB records to LangChain memory
-const memory = chatFromDb.map((each) => {
-  if (each.sender === "user") {
-    return new HumanMessage(each.message); // Visitor's messages
-  } else {
-    return new AIMessage(each.message); // AI's previous responses
-  }
-});
-
-// Final message array sent to Gemini:
-messagesMemoryContainer = [
-  systemMessage, // Project's custom system prompt
-  ...messagesMemoryContainer, // All previous conversation history
-  userMessage, // Current question + retrieved context from vector DB
-];
-
-// Invoke AI with full context
-const response = await this.llm.invoke(messagesMemoryContainer);
-```
-
-> 💡 **This is what makes the chatbot "remember"** — by loading previous messages from the database and injecting them into the LLM context, the AI can reference earlier parts of the conversation. For example, if a visitor asks "Tell me more about that" — the AI knows what "that" refers to.
+> 💡 **This is what makes the chatbot "remember"** — by loading previous messages from the database and injecting them into the LLM context, the AI can reference earlier parts of the conversation.
 
 #### 🔴 Step 4 — Saving Both Messages to Database
 
-After the AI responds, **both the user's question and the AI's answer** are saved together:
-
-```typescript
-// chat.service.ts — Persisting the conversation
-await this.prismaService.chat.createMany({
-  data: [
-    {
-      clientId: clientId, // Links to the visitor's cookie
-      message: message, // The visitor's question
-      sender: "user", // Marks this as a human message
-      apikeyId: apikey, // Links to the specific chatbot/project
-    },
-    {
-      clientId: clientId,
-      message: tempAiMessage, // The AI's generated response
-      sender: "ai", // Marks this as an AI message
-      apikeyId: apikey,
-    },
-  ],
-});
-
-// Also track API usage
-await this.prismaService.apiKeyModel.update({
-  where: { apikey: apikey },
-  data: { requestsCount: { increment: 1 }, lastUsedAt: new Date() },
-});
-```
+After the AI responds, **both the user's question and the AI's answer** are saved together in a single `createMany` operation, linked by `clientId` and `apikeyId`. The API key's `requestsCount` is also incremented.
 
 ### Visual Flow
 
@@ -625,28 +540,6 @@ sequenceDiagram
     Backend->>Database: DELETE WHERE clientId AND apikeyId
     Backend-->>Browser: Deletion confirmed
 ```
-
-### Dual-Mode Retrieval
-
-ThinkBase handles chat history differently depending on **where** the chat is happening:
-
-| Mode                            | Context                                 | History Scoping         | Use Case                                      |
-| ------------------------------- | --------------------------------------- | ----------------------- | --------------------------------------------- |
-| **Dashboard** (`SDK=false`)     | Project owner testing in the playground | `clientId` + `apikeyId` | Each API key has isolated conversations       |
-| **Client Library** (`SDK=true`) | End-user on a third-party website       | `clientId` only         | All conversations for that visitor are loaded |
-
-### Key Design Decisions
-
-| Decision                                 | Reasoning                                                                                       |
-| ---------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| **Cookie over localStorage**             | `httpOnly` cookies can't be stolen via XSS attacks — more secure than localStorage              |
-| **Server-side storage over client-side** | Messages persist even if the user clears browser data; enables analytics and moderation         |
-| **24-hour cookie expiry**                | Balances conversation continuity with privacy — visitors get a fresh session daily              |
-| **`createMany` for batch insert**        | Both user and AI messages are saved in a single database operation — atomic and efficient       |
-| **Separate sender field**                | `sender: 'user' \| 'ai'` enables easy reconstruction of the conversation in the correct order   |
-| **Cross-origin cookie support**          | `SameSite=None` + `secure: true` ensures the widget works when embedded on any external website |
-
-> 🔒 **Privacy Note**: Chat data is stored server-side and linked only to an anonymous cookie — no personal information is collected from website visitors. When the cookie expires or is cleared, the visitor gets a fresh conversation.
 
 ---
 
