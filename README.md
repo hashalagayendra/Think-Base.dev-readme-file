@@ -208,46 +208,76 @@ ThinkBase uses **Retrieval-Augmented Generation (RAG)** to:
 
 The database uses **PostgreSQL with the pgvector extension** for native vector similarity search. Here's the complete Entity-Relationship model:
 
-```
-┌──────────────────────┐       ┌──────────────────────────┐
-│        User          │       │        Project            │
-├──────────────────────┤       ├──────────────────────────┤
-│ id         (PK,CUID) │──1:N─▶│ id           (PK,CUID)  │
-│ email      (UNIQUE)  │       │ name         (VARCHAR)   │
-│ name       (VARCHAR) │       │ description  (TEXT)      │
-│ password   (HASHED)  │       │ systemPrompt (TEXT)      │
-│ photo      (URL)     │       │ files        (JSON)      │
-│ refreshToken         │       │ userId       (FK→User)   │
-│ isEmailVerified      │       │ createdAt / updatedAt    │
-│ createdAt / updatedAt│       └─────┬──────┬──────┬──────┘
-└──────────────────────┘             │      │      │
-                                     │      │      │
-                    ┌────────────────┘      │      └──────────────────┐
-                    ▼                       ▼                         ▼
-┌────────────────────────┐  ┌─────────────────────────┐  ┌──────────────────────┐
-│      Documents         │  │      ApiKeyModel        │  │      VectorDB        │
-├────────────────────────┤  ├─────────────────────────┤  ├──────────────────────┤
-│ documentsId (PK,CUID)  │  │ apikey      (PK,HEX)   │  │ id         (PK,CUID) │
-│ name       (VARCHAR)   │  │ projectId   (FK)        │  │ type       (VARCHAR) │
-│ text       (TEXT)      │  │ name        (VARCHAR)   │  │ chunk      (TEXT)    │
-│ chankSize  (INT, 500)  │  │ requestsCount (INT)     │  │ geminiFlash-         │
-│ overlap    (INT, 50)   │  │ lastUsedAt  (DATETIME)  │  │  Embeddings          │
-│ status     (VARCHAR)   │  │ createdAt               │  │  (vector(3072))      │
-│ projectId  (FK)        │  └──────────┬──────────────┘  │ documentId (FK)      │
-│ createdAt / updatedAt  │             │                  │ projectsid (FK)      │
-└────────┬───────────────┘             │                  └──────────────────────┘
-         │                             │
-         │                             ▼
-         │                 ┌──────────────────────┐
-         │                 │        Chat          │
-         │                 ├──────────────────────┤
-         └────────────────▶│ id        (PK,CUID)  │
-                           │ clientId  (VARCHAR)   │
-                           │ message   (TEXT)      │
-                           │ sender    (user/ai)   │
-                           │ apikeyId  (FK)        │
-                           │ createdAt             │
-                           └──────────────────────┘
+```mermaid
+erDiagram
+    User {
+        string id PK "CUID"
+        string email UK "Unique"
+        string name "VARCHAR(255)"
+        string password "Hashed, Nullable"
+        string photo "URL, Nullable"
+        string refreshToken "Nullable"
+        boolean isEmailVerified "Default: false"
+        datetime createdAt
+        datetime updatedAt
+    }
+
+    Project {
+        string id PK "CUID"
+        string name "VARCHAR(255)"
+        string description "TEXT, Nullable"
+        json files "Nullable"
+        string systemPrompt "TEXT, Default: helpful assistant"
+        string userId FK "References User"
+        datetime createdAt
+        datetime updatedAt
+    }
+
+    Documents {
+        string documentsId PK "CUID"
+        string name "VARCHAR(255), Nullable"
+        string text "TEXT, Nullable"
+        int chankSize "Default: 500"
+        int overlap "Default: 50"
+        string status "Default: Need_to_configure"
+        string projectId FK "References Project"
+        datetime createdAt
+        datetime updatedAt
+    }
+
+    ApiKeyModel {
+        string apikey PK "256-bit HEX"
+        string projectId FK "References Project"
+        string name "VARCHAR(255), Nullable"
+        int requestsCount "Default: 0"
+        datetime lastUsedAt "Nullable"
+        datetime createdAt
+    }
+
+    VectorDB {
+        string id PK "CUID"
+        string type "VARCHAR(100), Nullable"
+        string chunk "TEXT, Nullable"
+        vector geminiFlashEmbeddings "vector(3072), Nullable"
+        string documentId FK "References Documents"
+        string projectsid FK "References Project"
+    }
+
+    Chat {
+        string id PK "CUID"
+        string clientId "VARCHAR(255), Nullable"
+        string message "TEXT, Nullable"
+        string sender "Nullable"
+        string apikeyId FK "References ApiKeyModel, Nullable"
+        datetime createdAt "Nullable"
+    }
+
+    User ||--o{ Project : "owns"
+    Project ||--o{ Documents : "contains"
+    Project ||--o{ ApiKeyModel : "has"
+    Project ||--o{ VectorDB : "stores embeddings"
+    Documents ||--o{ VectorDB : "split into chunks"
+    ApiKeyModel ||--o{ Chat : "tracks messages"
 ```
 
 ### Key Design Decisions
