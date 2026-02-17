@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="frontend/src/assets/logo.svg" alt="ThinkBase Logo" width="120" height="120" style="background-color: #1a1a2e; border-radius: 20px; padding: 15px;" />
+  <img src="logo.6dfedbbb.svg" alt="ThinkBase Logo" width="120" height="120" style="background-color: #1a1a2e; border-radius: 20px; padding: 15px;" />
 </p>
 
 <p align="center">
@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/Docker-Containerized-2496ED?style=for-the-badge&logo=docker&logoColor=white" />
 </p>
 
-<h1 align="center">🧠 ThinkBase</h1>
+<h1 align="center">ThinkBase</h1>
 
 <p align="center">
   <strong>An enterprise-grade AI-powered Retrieval-Augmented Generation (RAG) platform that enables businesses and developers to build intelligent, context-aware chatbots from their own documents — deployed to production on Azure.</strong>
@@ -466,11 +466,132 @@ This is the core intelligence of ThinkBase. Here's the complete RAG flow:
 
 ---
 
-## � Chat Session & History Persistence
+## 💾 Chat Session & History Persistence
 
 ThinkBase implements a **cookie-based session tracking system** that enables persistent chat history per user — without requiring authentication for end-users of the chatbot.
 
-### How It Works
+### The Problem
+
+When a website visitor uses an embedded ThinkBase chatbot, they are **anonymous** — they don't have an account. But we still need to:
+
+- Remember their **conversation history** so the AI can give contextual responses
+- Allow them to **come back later** and continue the same conversation
+- Keep conversations **separate** between different visitors and different chatbots
+
+### The Solution: Cookie-Based Session Identity
+
+Instead of requiring login, ThinkBase generates a **unique session ID** and stores it as a browser cookie. This cookie acts as the visitor's anonymous identity.
+
+### Step-by-Step Flow
+
+#### 🔵 Step 1 — First Visit (No Cookie Exists)
+
+When a visitor sends their **first message**, the backend detects no `clientId` cookie and generates one:
+
+```typescript
+// chat.controller.ts — First message handling
+let clientId = req.cookies["clientId"] || null || undefined;
+
+if (!clientId) {
+  // Generate a cryptographically secure 128-bit random ID
+  clientId = crypto.randomBytes(16).toString("hex");
+  // Example output: "a3f8b2c1d4e5f6a7b8c9d0e1f2a3b4c5"
+
+  // Store it as a secure cookie in the visitor's browser
+  res.cookie("clientId", clientId, {
+    sameSite: "none", // Allow cross-origin (widget on any website)
+    httpOnly: true, // JavaScript cannot read this cookie (XSS protection)
+    secure: true, // Only sent over HTTPS
+    maxAge: 1000 * 60 * 60 * 24, // Expires in 24 hours
+  });
+}
+```
+
+> **Why `httpOnly`?** — Prevents malicious JavaScript on the host website from stealing the session cookie. Only the browser sends it automatically with each request.
+
+> **Why `SameSite=None`?** — The chatbot widget runs on a **different domain** than the ThinkBase backend. Without `SameSite=None`, the browser would block the cookie on cross-origin requests.
+
+#### 🟢 Step 2 — Retrieving Previous Conversations
+
+On every subsequent message, the backend loads the visitor's **entire chat history** from the database:
+
+```typescript
+// chat.service.ts — Loading conversation history
+// Two modes: Dashboard (scoped by clientId + apikey) vs Client Library (scoped by clientId only)
+
+if (!SDK) {
+  // Dashboard mode — conversations are scoped per API key
+  chat = await this.prismaService.chat.findMany({
+    where: { clientId, apikeyId: apikey },
+    orderBy: { createdAt: "asc" },
+  });
+} else {
+  // Client Library mode — all conversations for this visitor
+  chat = await this.prismaService.chat.findMany({
+    where: { clientId },
+    orderBy: { createdAt: "asc" },
+  });
+}
+```
+
+#### 🟡 Step 3 — Building Conversation Memory for AI
+
+The stored messages are converted into **LangChain message objects** so the AI understands the full conversation context:
+
+```typescript
+// chat.service.ts — Converting DB records to LangChain memory
+const memory = chatFromDb.map((each) => {
+  if (each.sender === "user") {
+    return new HumanMessage(each.message); // Visitor's messages
+  } else {
+    return new AIMessage(each.message); // AI's previous responses
+  }
+});
+
+// Final message array sent to Gemini:
+messagesMemoryContainer = [
+  systemMessage, // Project's custom system prompt
+  ...messagesMemoryContainer, // All previous conversation history
+  userMessage, // Current question + retrieved context from vector DB
+];
+
+// Invoke AI with full context
+const response = await this.llm.invoke(messagesMemoryContainer);
+```
+
+> 💡 **This is what makes the chatbot "remember"** — by loading previous messages from the database and injecting them into the LLM context, the AI can reference earlier parts of the conversation. For example, if a visitor asks "Tell me more about that" — the AI knows what "that" refers to.
+
+#### 🔴 Step 4 — Saving Both Messages to Database
+
+After the AI responds, **both the user's question and the AI's answer** are saved together:
+
+```typescript
+// chat.service.ts — Persisting the conversation
+await this.prismaService.chat.createMany({
+  data: [
+    {
+      clientId: clientId, // Links to the visitor's cookie
+      message: message, // The visitor's question
+      sender: "user", // Marks this as a human message
+      apikeyId: apikey, // Links to the specific chatbot/project
+    },
+    {
+      clientId: clientId,
+      message: tempAiMessage, // The AI's generated response
+      sender: "ai", // Marks this as an AI message
+      apikeyId: apikey,
+    },
+  ],
+});
+
+// Also track API usage
+await this.prismaService.apiKeyModel.update({
+  where: { apikey: apikey },
+  data: { requestsCount: { increment: 1 }, lastUsedAt: new Date() },
+});
+```
+
+### Visual Flow
 
 ```mermaid
 sequenceDiagram
@@ -478,40 +599,54 @@ sequenceDiagram
     participant Backend
     participant Database
 
+    Note over Browser: 🔵 First Visit
     Browser->>Backend: POST /chat/sendMessage (no clientId cookie)
     Note over Backend: Generate clientId via<br/>crypto.randomBytes(16).toString('hex')
-    Backend->>Database: Store message with clientId + apikeyId
-    Backend-->>Browser: Response + Set-Cookie: clientId (httpOnly, secure, SameSite=None)
+    Backend->>Database: Vector similarity search for relevant chunks
+    Backend->>Database: Store user message + AI response with clientId
+    Backend-->>Browser: AI Response + Set-Cookie: clientId (httpOnly, secure)
 
-    Browser->>Backend: POST /chat/sendMessage (clientId cookie attached)
-    Backend->>Database: Fetch previous messages by clientId
-    Note over Backend: Build conversation memory<br/>from stored history
-    Backend->>Database: Store new user message + AI response
-    Backend-->>Browser: AI Response
+    Note over Browser: 🟢 Return Visit (cookie exists)
+    Browser->>Backend: POST /chat/sendMessage (clientId cookie auto-attached)
+    Backend->>Database: Load all previous messages by clientId
+    Note over Backend: Build LangChain memory array<br/>[SystemMessage, ...history, HumanMessage]
+    Backend->>Database: Vector similarity search for relevant chunks
+    Note over Backend: Invoke Gemini with full context
+    Backend->>Database: Save both user + AI messages
+    Backend-->>Browser: AI Response (contextually aware)
 
+    Note over Browser: 📜 View History
     Browser->>Backend: POST /chat/getAllMessagesByClientId
     Backend->>Database: SELECT * WHERE clientId AND apikeyId
     Backend-->>Browser: Full chat history array
 
+    Note over Browser: 🗑️ Clear History
     Browser->>Backend: POST /chat/deleteAllMessagesByClientId
     Backend->>Database: DELETE WHERE clientId AND apikeyId
     Backend-->>Browser: Deletion confirmed
 ```
 
-### Key Design Details
+### Dual-Mode Retrieval
 
-| Aspect                      | Implementation                                                                                       |
-| --------------------------- | ---------------------------------------------------------------------------------------------------- |
-| **Session ID Generation**   | `crypto.randomBytes(16).toString('hex')` — 128-bit random hex string                                 |
-| **Storage Mechanism**       | `httpOnly` secure cookie (`SameSite=None`) — accessible cross-origin                                 |
-| **Server-Side Persistence** | All messages stored in `Chat` table with `clientId`, `message`, `sender`, `apikeyId`                 |
-| **History Scoping**         | Messages are scoped by `clientId` + `apikeyId` — each API key has separate conversations             |
-| **Conversation Memory**     | Previous messages loaded from DB and injected as `HumanMessage` / `AIMessage` into LangChain context |
-| **Session Lifecycle**       | Cookie persists in browser → same user gets same chat history on return visits                       |
-| **Anonymous Users**         | No login required — end-users are identified solely by the browser cookie                            |
-| **Clear History**           | Users can delete all messages via `deleteAllMessagesByClientId` endpoint                             |
+ThinkBase handles chat history differently depending on **where** the chat is happening:
 
-> 💡 This design allows **website visitors to have persistent conversations** with the AI chatbot without creating an account — the browser cookie acts as their anonymous identity, and all history is safely stored server-side in PostgreSQL.
+| Mode                            | Context                                 | History Scoping         | Use Case                                      |
+| ------------------------------- | --------------------------------------- | ----------------------- | --------------------------------------------- |
+| **Dashboard** (`SDK=false`)     | Project owner testing in the playground | `clientId` + `apikeyId` | Each API key has isolated conversations       |
+| **Client Library** (`SDK=true`) | End-user on a third-party website       | `clientId` only         | All conversations for that visitor are loaded |
+
+### Key Design Decisions
+
+| Decision                                 | Reasoning                                                                                       |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| **Cookie over localStorage**             | `httpOnly` cookies can't be stolen via XSS attacks — more secure than localStorage              |
+| **Server-side storage over client-side** | Messages persist even if the user clears browser data; enables analytics and moderation         |
+| **24-hour cookie expiry**                | Balances conversation continuity with privacy — visitors get a fresh session daily              |
+| **`createMany` for batch insert**        | Both user and AI messages are saved in a single database operation — atomic and efficient       |
+| **Separate sender field**                | `sender: 'user' \| 'ai'` enables easy reconstruction of the conversation in the correct order   |
+| **Cross-origin cookie support**          | `SameSite=None` + `secure: true` ensures the widget works when embedded on any external website |
+
+> 🔒 **Privacy Note**: Chat data is stored server-side and linked only to an anonymous cookie — no personal information is collected from website visitors. When the cookie expires or is cleared, the visitor gets a fresh conversation.
 
 ---
 
@@ -521,19 +656,19 @@ sequenceDiagram
 
 #### Auth Module (`/auth`)
 
-| Method | Endpoint                     | Description                                   | Auth     |
-| ------ | ---------------------------- | --------------------------------------------- | -------- |
-| `POST` | `/auth/signup`               | Register with email, name, password           | ❌       |
-| `POST` | `/auth/login`                | Login with credentials → sets refresh cookie  | ❌       |
-| `POST` | `/auth/logout`               | Clear refresh token cookie                    | ❌       |
-| `POST` | `/auth/verify`               | Verify JWT + get user info                    | ✅ Guard |
-| `GET`  | `/auth/google`               | Initiate Google OAuth flow                    | ❌       |
-| `GET`  | `/auth/google/callback`      | Google OAuth callback → redirect to Dashboard | ❌       |
-| `GET`  | `/auth/github`               | Initiate GitHub OAuth                         | ❌       |
-| `GET`  | `/auth/github/callback`      | GitHub OAuth callback → redirect to Dashboard | ❌       |
-| `POST` | `/auth/magic-link/validate`  | Validate email magic link token               | ❌       |
-| `POST` | `/auth/reSendEmail`          | Resend verification email                     | ❌       |
-| `POST` | `/auth/homePageVerification` | Check if user is logged in (via cookie)       | ❌       |
+| Method | Endpoint                     | Description                                   |
+| ------ | ---------------------------- | --------------------------------------------- |
+| `POST` | `/auth/signup`               | Register with email, name, password           |
+| `POST` | `/auth/login`                | Login with credentials → sets refresh cookie  |
+| `POST` | `/auth/logout`               | Clear refresh token cookie                    |
+| `POST` | `/auth/verify`               | Verify JWT + get user info                    |
+| `GET`  | `/auth/google`               | Initiate Google OAuth flow                    |
+| `GET`  | `/auth/google/callback`      | Google OAuth callback → redirect to Dashboard |
+| `GET`  | `/auth/github`               | Initiate GitHub OAuth                         |
+| `GET`  | `/auth/github/callback`      | GitHub OAuth callback → redirect to Dashboard |
+| `POST` | `/auth/magic-link/validate`  | Validate email magic link token               |
+| `POST` | `/auth/reSendEmail`          | Resend verification email                     |
+| `POST` | `/auth/homePageVerification` | Check if user is logged in (via cookie)       |
 
 #### Project Module (`/project`) — Protected by `ProjectGuard`
 
