@@ -36,7 +36,9 @@
 >
 > 🎬 **Watch demo videos & detailed walkthrough →** [https://hasalagayendra.vercel.app/Projects/ThinkBase](https://hasalagayendra.vercel.app/Projects/ThinkBase)
 
-<br/>
+<p align="center">
+  <img src="1.webp" alt="ThinkBase Homepage" width="100%" />
+</p>
 
 ---
 
