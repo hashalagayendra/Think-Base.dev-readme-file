@@ -47,7 +47,7 @@
 - [🤖 RAG Pipeline — How AI Works](#-rag-pipeline--how-ai-works)
 - [📡 API Layer — REST & GraphQL](#-api-layer--rest--graphql)
 - [🎨 Frontend Architecture](#-frontend-architecture)
-- [📦 SDK — npm Package](#-sdk--npm-package)
+- [📦 Client Library — npm Package](#-client-library--npm-package)
 - [🚀 CI/CD & Cloud Deployment](#-cicd--cloud-deployment)
 - [📁 Project Structure](#-project-structure)
 - [🛠️ Skills Demonstrated](#️-skills-demonstrated)
@@ -88,7 +88,7 @@ ThinkBase uses **Retrieval-Augmented Generation (RAG)** to:
 | 💬 **AI Chat with Memory**         | Full conversation memory using LangChain message history (`HumanMessage`, `AIMessage`, `SystemMessage`)                |
 | 🔑 **API Key System**              | Generate/revoke API keys per project with request counting and usage tracking                                          |
 | 🎨 **Customizable System Prompts** | Per-project AI personality and behavior configuration                                                                  |
-| 📦 **npm SDK**                     | Published `thinkbase` npm package — embed a chat widget in any website with 3 lines of code                            |
+| 📦 **npm Client Library**          | Published `thinkbase` npm package — embed a chat widget in any website with 3 lines of code                            |
 | 📊 **GraphQL API**                 | Apollo Server with auto-generated schema for mobile app consumption                                                    |
 | 📝 **Swagger Docs**                | Interactive API documentation at `/api` endpoint                                                                       |
 | 🐳 **Docker Multi-Stage Builds**   | Optimized production images for both backend and frontend                                                              |
@@ -106,7 +106,7 @@ ThinkBase uses **Retrieval-Augmented Generation (RAG)** to:
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
 │  ┌──────────────┐   ┌──────────────┐   ┌──────────────────────────┐    │
-│  │   Frontend    │   │   SDK npm     │   │   Mobile App (GraphQL)  │    │
+│  │   Frontend    │   │ Client Library │   │   Mobile App (GraphQL)  │    │
 │  │  Next.js 15   │   │  "thinkbase"  │   │   React Native Ready   │    │
 │  │  React 19     │   │  Rollup Build │   │   Apollo Client         │    │
 │  │  Port: 4000   │   │  Any Website  │   │                         │    │
@@ -185,7 +185,7 @@ ThinkBase uses **Retrieval-Augmented Generation (RAG)** to:
 | **react-dropzone** | 14      | Drag & drop file upload                         |
 | **Zod**            | 4       | Runtime type validation                         |
 
-### SDK (`thinkbase` npm package)
+### Client Library (`thinkbase` npm package)
 
 | Technology | Purpose                                   |
 | ---------- | ----------------------------------------- |
@@ -588,7 +588,7 @@ src/components/
 ├── DocumentChunkAdjust.tsx         # Chunk size/overlap config
 ├── DocumentsList.tsx               # Document management table
 ├── ConfigureTab.tsx                # Document configuration panel
-├── CodeSnippet.tsx                 # SDK integration code display
+├── CodeSnippet.tsx                 # Client library integration code display
 ├── CreateNewProject.tsx            # Project creation modal
 ├── ProjectCard.tsx                 # Project card component
 ├── ProjectsSection.tsx             # Projects grid layout
@@ -618,14 +618,14 @@ interface GlobalStoreState {
 
 ---
 
-## 📦 SDK — npm Package
+## 📦 Client Library — npm Package
 
 ThinkBase ships a published **npm package** (`thinkbase`) that lets developers embed an AI chatbot on any website.
 
-### SDK Architecture
+### Client Library Architecture
 
 ```
-SDK/
+Client-Library/
 ├── src/
 │   ├── index.js           # Public exports
 │   ├── Client.js          # ThinkBaseClient class (API wrapper)
@@ -808,7 +808,7 @@ ThinkBase/
 │   ├── Dockerfile                    # Multi-stage build
 │   └── package.json
 │
-└── SDK/                              # npm package "thinkbase"
+└── Client-Library/                   # npm package "thinkbase"
     ├── src/
     │   ├── index.js                  # Public exports
     │   ├── Client.js                 # ThinkBaseClient class
@@ -857,11 +857,11 @@ This project demonstrates proficiency across the **full software development lif
 
 ### Software Engineering Practices
 
-- ✅ **npm Package Publishing** — Built and published `thinkbase` SDK to npm registry
+- ✅ **npm Package Publishing** — Built and published `thinkbase` client library to npm registry
 - ✅ **API Key Management** — Secure key generation, revocation, and usage tracking
 - ✅ **Modular Architecture** — Clean separation of concerns across modules
 - ✅ **Database Migrations** — 14 incremental migrations tracking schema evolution
-- ✅ **Multi-Client Support** — REST API for web, GraphQL for mobile, SDK for third-party integration
+- ✅ **Multi-Client Support** — REST API for web, GraphQL for mobile, client library for third-party integration
 
 ---
 
