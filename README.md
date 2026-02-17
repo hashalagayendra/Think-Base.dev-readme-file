@@ -13,10 +13,10 @@
   <img src="https://img.shields.io/badge/Docker-Containerized-2496ED?style=for-the-badge&logo=docker&logoColor=white" />
 </p> -->
 
-<h1 align="center">ThinkBase</h1>
+<h1 align="center">Think-Base.dev</h1>
 
 <p align="center">
-  <strong>An enterprise-grade AI-powered Retrieval-Augmented Generation (RAG) platform that enables businesses and developers to build intelligent, context-aware chatbots from their own documents — deployed to production on Azure.</strong>
+  <strong>AI-powered Retrieval-Augmented Generation (RAG) platform that enables businesses and developers to build intelligent, context-aware chatbots from their own documents — deployed to production on Azure.</strong>
 </p>
 
 <p align="center">
